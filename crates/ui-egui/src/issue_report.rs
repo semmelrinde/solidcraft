@@ -587,7 +587,7 @@ pub fn crash_draft(report: &serde_json::Value) -> Draft {
     let mut draft = Draft::new(title, body, 0);
     draft.origin = Origin::Crash;
     draft.description =
-        limited_chars(&format!("{what}{}.", command.map(|c| format!(" while running `{}`", limited(c, 160))).unwrap_or_default()), MAX_ANSWER);
+        limited(&format!("{what}{}.", command.map(|c| format!(" while running `{}`", limited(c, 160))).unwrap_or_default()), MAX_ANSWER);
     draft
 }
 
