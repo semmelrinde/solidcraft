@@ -1,0 +1,18 @@
+{
+  "en": {
+    "ui.report_characters_left_one": "{count} character left",
+    "ui.report_characters_left_other": "{count} characters left"
+  },
+  "de": {
+    "ui.report_characters_left_one": "{count} Zeichen übrig",
+    "ui.report_characters_left_other": "{count} Zeichen übrig"
+  },
+  "ja": {
+    "ui.report_characters_left_one": "残り {count} 文字",
+    "ui.report_characters_left_other": "残り {count} 文字"
+  },
+  "zh": {
+    "ui.report_characters_left_one": "剩余 {count} 个字符",
+    "ui.report_characters_left_other": "剩余 {count} 个字符"
+  }
+}
