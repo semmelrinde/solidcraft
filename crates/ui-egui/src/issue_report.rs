@@ -26,9 +26,50 @@ const MAX_SIGN_IN_URL: usize = 7000;
 /// Ends a report whose screenshot Continue on GitHub copies: where to paste it. GitHub doesn't
 /// show comments in the published issue.
 const PASTE_HINT: &str = "\n<!-- SolidCraft copied a screenshot of the app: paste it here (Ctrl+V, or ⌘V on a Mac) to attach it. -->\n";
+/// Ends such a report where the screenshot can't be copied: the reporter saves it and drags it in.
+const DRAG_HINT: &str = "\n<!-- Drag the screenshot you saved from SolidCraft here to attach it. -->\n";
 
 thread_local! {
     static CAD_INPUT_BLOCKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Tests decide whether copying an image works; they never ask the desktop's clipboard.
+    #[cfg(test)]
+    static IMAGE_COPY_FOR_TEST: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Tests force [`image_copy_works`] either way.
+#[cfg(test)]
+pub(crate) fn set_image_copy_works_for_test(works: bool) {
+    IMAGE_COPY_FOR_TEST.with(|cell| cell.set(works));
+}
+
+/// Whether copying an image reaches the system clipboard. egui-winit copies images only through
+/// arboard, which this build reaches over X11 alone (no `wayland-data-control`): on a Wayland
+/// session without X11, the Flatpak among them (X11 is only its fallback socket), the copy does
+/// nothing and the reporter would paste whatever was copied before.
+pub(crate) fn image_copy_works() -> bool {
+    #[cfg(test)]
+    {
+        IMAGE_COPY_FOR_TEST.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        system_image_copy()
+    }
+}
+
+/// egui-winit's own check: its clipboard copies images when arboard starts. Asked once; macOS and
+/// Windows always have it, and the browser copies through the Clipboard API (eframe's web runner).
+#[cfg(not(test))]
+fn system_image_copy() -> bool {
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+    {
+        static WORKS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *WORKS.get_or_init(|| arboard::Clipboard::new().is_ok())
+    }
+    #[cfg(not(all(unix, not(target_os = "macos"), not(target_arch = "wasm32"))))]
+    {
+        true
+    }
 }
 
 /// Tests set the barrier by hand to see what ignores it.
@@ -181,7 +222,8 @@ impl Draft {
 
     /// What Continue on GitHub hands over (#7103): the report goes in the link whenever GitHub
     /// keeps it, so the clipboard is free for the screenshot. Only a report too long for the link
-    /// goes on the clipboard instead.
+    /// goes on the clipboard instead. Where images can't be copied, the screenshot is saved and
+    /// dragged in.
     pub(super) fn handoff(&self) -> Handoff {
         let (title, body) = (self.report_title(), self.report_body());
         let (url, too_long) = draft_url(&title, &body);
@@ -189,8 +231,9 @@ impl Draft {
             return Handoff { url, copy: Copied::Text(body) };
         }
         let Some(image) = self.image.clone() else { return Handoff { url, copy: Copied::Nothing } };
-        let (hinted, hint_too_long) = draft_url(&title, &format!("{body}{PASTE_HINT}"));
-        Handoff { url: if hint_too_long { url } else { hinted }, copy: Copied::Screenshot(image) }
+        let (hint, copy) = if image_copy_works() { (PASTE_HINT, Copied::Screenshot(image)) } else { (DRAG_HINT, Copied::SaveScreenshot) };
+        let (hinted, hint_too_long) = draft_url(&title, &format!("{body}{hint}"));
+        Handoff { url: if hint_too_long { url } else { hinted }, copy }
     }
 }
 
@@ -204,6 +247,9 @@ pub(super) enum Copied {
     Nothing,
     /// The report is in the link; the screenshot goes on the clipboard, to paste on GitHub.
     Screenshot(Arc<ColorImage>),
+    /// The report is in the link; images can't be copied here, so the reporter saves the
+    /// screenshot and drags the PNG in on GitHub.
+    SaveScreenshot,
     /// The report is too long for the link: its text goes on the clipboard.
     Text(String),
 }
@@ -702,6 +748,12 @@ mod tests {
         commands
     }
 
+    /// Whether the button labelled `label` is drawn disabled.
+    fn button_disabled(h: &crate::scenario::Harness, label: &str) -> Option<bool> {
+        let tree = h.output.accesskit_update.as_ref()?;
+        tree.nodes.iter().find_map(|(_, n)| (n.role() == egui::accesskit::Role::Button && n.label() == Some(label)).then(|| n.is_disabled()))
+    }
+
     /// The query of `url` as GitHub reads it: names and values, `+` a space.
     fn query(url: &str) -> Vec<(String, String)> {
         let decode = |v: &str| {
@@ -1060,6 +1112,8 @@ mod tests {
     /// GitHub attaches it, where the report says to (#7103).
     #[test]
     fn issue_report_continue_copies_the_screenshot_when_the_report_fits_the_link() {
+        // As on macOS, Windows, X11 and the web.
+        set_image_copy_works_for_test(true);
         let mut h = crate::scenario::Harness::new();
         h.app.home.open = false;
         // Small enough that the fields scroll.
@@ -1076,6 +1130,7 @@ mod tests {
         ] {
             assert!(h.widget(text).is_some(), "{text}");
         }
+        assert_eq!(button_disabled(&h, "Copy screenshot"), Some(false));
         let commands = click_commands(&mut h, "Continue on GitHub");
         assert!(commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyImage(image) if image.size == [2, 2])), "{commands:?}");
         assert!(!commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_))), "the report text is in the link");
@@ -1096,6 +1151,50 @@ mod tests {
         // screenshot is there.
         click_commands(&mut h, "Copy report");
         assert!(!h.app.issue_report.draft.as_ref().unwrap().opened_github && h.widget(done).is_none());
+    }
+
+    /// Where images can't be copied (a Wayland session without X11, the Flatpak among them),
+    /// Continue on GitHub never says the screenshot is copied: the reporter would paste whatever
+    /// was copied before. The dialog says to save the screenshot and drag it in instead (#7103).
+    #[test]
+    fn issue_report_continue_never_claims_a_screenshot_it_cannot_copy() {
+        set_image_copy_works_for_test(false);
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        let mut draft = draft_for(&h.app, None, None);
+        draft.description = "The preview disappeared after clicking Extrude.".into();
+        draft.image = Some(Arc::new(ColorImage::new([2, 2], vec![egui::Color32::GREEN; 4])));
+        let body = draft.report_body();
+        h.app.issue_report.draft = Some(draft);
+        h.frames(16);
+        for text in [
+            "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.",
+            "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.",
+        ] {
+            assert!(h.widget(text).is_some(), "{text}");
+        }
+        assert!(h.widget("Continue on GitHub copies this image for you to paste into the report there.").is_none());
+        // Copy screenshot is off, and says why.
+        assert_eq!(button_disabled(&h, "Copy screenshot"), Some(true));
+        let [x, y] = h.widget("Copy screenshot").unwrap();
+        h.call("ui.move", json!({"x":x,"y":y}));
+        h.frames(60);
+        assert!(h.widget("Images can't be copied here. Save the screenshot instead.").is_some());
+        let commands = click_commands(&mut h, "Continue on GitHub");
+        assert!(!commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyImage(_) | egui::OutputCommand::CopyText(_))), "{commands:?}");
+        let url = commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(open) = c { Some(open.url.clone()) } else { None }).unwrap();
+        assert_eq!(query(&url).get(1).map(|(_, v)| v.clone()), Some(format!("{body}{DRAG_HINT}")));
+        assert!(
+            h.widget(
+                "Your report is filled in on GitHub. Save the screenshot, drag the PNG into the description there, then click Submit new issue."
+            )
+            .is_some()
+        );
+        assert!(
+            h.widget("Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.")
+                .is_none()
+        );
+        set_image_copy_works_for_test(true);
     }
 
     #[test]

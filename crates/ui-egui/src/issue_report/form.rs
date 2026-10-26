@@ -5,13 +5,15 @@ use egui::{Id, Ui, vec2};
 use super::{Copied, Draft, MAX_ANSWER, MAX_BODY};
 use crate::{SolveApp, i18n::tr_label, ui_kit};
 
-const ALL_GUIDANCE: [&str; 6] = [
+const ALL_GUIDANCE: [&str; 8] = [
     "Report text copied. Paste it into GitHub and submit your report there.",
     "Review your report on GitHub and click Submit new issue to publish it.",
     "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.",
+    "Your report is filled in on GitHub. Save the screenshot, drag the PNG into the description there, then click Submit new issue.",
     "Opens your browser and copies the report text for you to paste into GitHub.",
     "Opens your browser. Review and submit your report on GitHub.",
     "Opens your browser with the report filled in, and copies the screenshot for you to paste there.",
+    "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.",
 ];
 
 /// What the dialog says Continue on GitHub does, or did.
@@ -20,9 +22,11 @@ fn guidance(copy: &Copied, opened: bool) -> &'static str {
         (Copied::Text(_), true) => ALL_GUIDANCE[0],
         (Copied::Nothing, true) => ALL_GUIDANCE[1],
         (Copied::Screenshot(_), true) => ALL_GUIDANCE[2],
-        (Copied::Text(_), false) => ALL_GUIDANCE[3],
-        (Copied::Nothing, false) => ALL_GUIDANCE[4],
-        (Copied::Screenshot(_), false) => ALL_GUIDANCE[5],
+        (Copied::SaveScreenshot, true) => ALL_GUIDANCE[3],
+        (Copied::Text(_), false) => ALL_GUIDANCE[4],
+        (Copied::Nothing, false) => ALL_GUIDANCE[5],
+        (Copied::Screenshot(_), false) => ALL_GUIDANCE[6],
+        (Copied::SaveScreenshot, false) => ALL_GUIDANCE[7],
     }
 }
 
@@ -47,7 +51,9 @@ fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui, copied
     });
     if draft.image.is_some() {
         ui.horizontal_wrapped(|ui| {
-            if ui_kit::button(ui, tr_label("Copy screenshot"), ui_kit::Button::Normal).clicked()
+            if ui_kit::button(ui, tr_label("Copy screenshot"), ui_kit::Button::Enabled(super::image_copy_works()))
+                .on_disabled_hover_text(tr_label("Images can't be copied here. Save the screenshot instead."))
+                .clicked()
                 && let Some(image) = draft.image.as_ref()
             {
                 ui.ctx().copy_image((**image).clone());
@@ -90,6 +96,8 @@ fn screenshot(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui, copied: bool) 
     let guidance = |ui: &mut Ui| {
         let text = if copied {
             "Continue on GitHub copies this image for you to paste into the report there."
+        } else if !super::image_copy_works() {
+            "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub."
         } else {
             "This image is not attached to GitHub yet. Copy or save it, then attach it on GitHub."
         };
@@ -214,7 +222,7 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
                 match handoff.copy {
                     Copied::Text(text) => ctx.copy_text(text),
                     Copied::Screenshot(image) => ctx.copy_image((*image).clone()),
-                    Copied::Nothing => {}
+                    Copied::SaveScreenshot | Copied::Nothing => {}
                 }
                 ctx.open_url(egui::OpenUrl::new_tab(handoff.url));
                 draft.opened_github = true;
