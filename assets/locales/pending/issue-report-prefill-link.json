@@ -1,0 +1,22 @@
+{
+  "en": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "Opens your browser with the report filled in, and copies the screenshot for you to paste there.",
+    "Continue on GitHub copies this image for you to paste into the report there.": "Continue on GitHub copies this image for you to paste into the report there."
+  },
+  "de": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "Der Bericht ist auf GitHub ausgefüllt und der Screenshot kopiert: Dort in die Beschreibung klicken, einfügen (Strg+V, auf dem Mac ⌘V) und auf Submit new issue klicken.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "Öffnet den Browser mit dem ausgefüllten Bericht und kopiert den Screenshot zum Einfügen dort.",
+    "Continue on GitHub copies this image for you to paste into the report there.": "Continue on GitHub kopiert dieses Bild, damit Sie es dort in den Bericht einfügen können."
+  },
+  "ja": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "GitHubにレポートが入力され、スクリーンショットがコピーされました。説明欄をクリックして貼り付け（Ctrl+V、Macでは⌘V）、Submit new issueをクリックしてください。",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "ブラウザーでレポートを入力した状態で開き、そこに貼り付けるスクリーンショットをコピーします。",
+    "Continue on GitHub copies this image for you to paste into the report there.": "「GitHubで続ける」でこの画像がコピーされます。GitHubのレポートに貼り付けてください。"
+  },
+  "zh": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "报告已填入GitHub，截图已复制：请点击GitHub中的描述框并粘贴（Ctrl+V，Mac上为⌘V），然后点击Submit new issue。",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "打开浏览器并填好报告，同时复制截图以便在那里粘贴。",
+    "Continue on GitHub copies this image for you to paste into the report there.": "“在GitHub中继续”会复制此图片，以便粘贴到GitHub的报告中。"
+  }
+}

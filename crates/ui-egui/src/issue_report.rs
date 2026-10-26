@@ -18,6 +18,14 @@ const MAX_BODY: usize = 24_000;
 const MAX_REPORT: usize = 32_000;
 const MAX_IMAGE_PIXELS: usize = 16_000_000;
 const ISSUE_URL: &str = "https://github.com/tangency-labs/solidcraft/issues/new";
+/// GitHub answers a longer link with `414 URI Too Long` (from about 8,200 characters).
+const MAX_URL: usize = 6000;
+/// Someone who isn't signed in is sent to sign in with the link to return to, encoded once more;
+/// past about 7,600 characters GitHub drops it and the form comes back empty after signing in.
+const MAX_SIGN_IN_URL: usize = 7000;
+/// Ends a report whose screenshot Continue on GitHub copies: where to paste it. GitHub doesn't
+/// show comments in the published issue.
+const PASTE_HINT: &str = "\n<!-- SolidCraft copied a screenshot of the app: paste it here (Ctrl+V, or ⌘V on a Mac) to attach it. -->\n";
 
 thread_local! {
     static CAD_INPUT_BLOCKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -170,6 +178,34 @@ impl Draft {
         }
         report
     }
+
+    /// What Continue on GitHub hands over (#7103): the report goes in the link whenever GitHub
+    /// keeps it, so the clipboard is free for the screenshot. Only a report too long for the link
+    /// goes on the clipboard instead.
+    pub(super) fn handoff(&self) -> Handoff {
+        let (title, body) = (self.report_title(), self.report_body());
+        let (url, too_long) = draft_url(&title, &body);
+        if too_long {
+            return Handoff { url, copy: Copied::Text(body) };
+        }
+        let Some(image) = self.image.clone() else { return Handoff { url, copy: Copied::Nothing } };
+        let (hinted, hint_too_long) = draft_url(&title, &format!("{body}{PASTE_HINT}"));
+        Handoff { url: if hint_too_long { url } else { hinted }, copy: Copied::Screenshot(image) }
+    }
+}
+
+pub(super) struct Handoff {
+    pub url: String,
+    pub copy: Copied,
+}
+
+pub(super) enum Copied {
+    /// The report is in the link.
+    Nothing,
+    /// The report is in the link; the screenshot goes on the clipboard, to paste on GitHub.
+    Screenshot(Arc<ColorImage>),
+    /// The report is too long for the link: its text goes on the clipboard.
+    Text(String),
 }
 
 struct Pending {
@@ -206,6 +242,15 @@ fn debug(value: &impl std::fmt::Debug, limit: usize) -> String {
     let mut text = Text { value: String::new(), limit };
     if write!(&mut text, "{value:#?}").is_err() {
         text.value.push_str("\n[truncated]");
+    }
+    text.value
+}
+
+/// [`debug`] on one line.
+fn debug_line(value: &impl std::fmt::Debug, limit: usize) -> String {
+    let mut text = Text { value: String::new(), limit };
+    if write!(&mut text, "{value:?}").is_err() {
+        text.value.push_str(" [truncated]");
     }
     text.value
 }
@@ -347,9 +392,9 @@ pub fn draft_for(app: &SolveApp, dialog: Option<&dialogs::Dialog>, error: Option
     };
     let mut body = format!(
         "## Operation context\n{actual}\n\n{image_state}\n\n## Settings and selection\n{context}\n## Environment\n{}\nRevision: {}\nCamera: {}\n\n## Visual context\nAttach the reviewed screenshot or a short example showing the problem.\n",
-        block(&debug(&help::diagnostics(app), 2000)),
+        block(&limited(&help::diagnostics(app), 2000)),
         app.session.revision,
-        block(&debug(&app.cam, 1500))
+        debug_line(&app.cam, 1500)
     );
     if body.len() > MAX_BODY {
         truncate(&mut body, MAX_BODY - 32);
@@ -446,10 +491,15 @@ pub fn begin_crash(app: &mut SolveApp, ctx: &egui::Context, report: &serde_json:
     app.issue_report.draft = Some(draft);
 }
 
+/// A query value as GitHub reads it: a space is `+`, so a `+` is encoded, as are `&`, `#`, `%`,
+/// `=`, quotes, line breaks and every byte outside ASCII. The rest of what RFC 3986 allows in a
+/// query stays as it is: a report's link is about a fifth longer than its text, not two-thirds.
 fn encode(value: &str) -> String {
-    let mut out = String::new();
+    let mut out = String::with_capacity(value.len());
     for b in value.bytes() {
-        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'~') {
+        if b == b' ' {
+            out.push('+');
+        } else if b.is_ascii_alphanumeric() || b"-_.~!$()*,;:@/?".contains(&b) {
             out.push(char::from(b));
         } else {
             let _ = write!(&mut out, "%{b:02X}");
@@ -458,13 +508,20 @@ fn encode(value: &str) -> String {
     out
 }
 
-/// Long drafts stay local and can be copied into the browser editor; never discard them.
+/// The length of `url` as GitHub's sign-in page carries it back: encoded once more.
+fn sign_in_length(url: &str) -> usize {
+    url.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.*~".contains(&b) { 1 } else { 3 }).sum()
+}
+
+/// The link to a new issue with `title` and `body` filled in, and whether `body` was too long
+/// for it (the link then carries the title alone). Long drafts stay local and can be copied
+/// into the browser editor; never discard them.
 pub fn draft_url(title: &str, body: &str) -> (String, bool) {
     let title = limited(title, 160);
     let base = format!("{ISSUE_URL}?title={}", encode(&title));
-    if body.len() <= MAX_BODY {
+    if body.len() <= MAX_URL {
         let url = format!("{base}&body={}", encode(body));
-        if url.len() <= 2000 {
+        if url.len() <= MAX_URL && sign_in_length(&url) <= MAX_SIGN_IN_URL {
             return (url, false);
         }
     }
@@ -645,6 +702,23 @@ mod tests {
         commands
     }
 
+    /// The query of `url` as GitHub reads it: names and values, `+` a space.
+    fn query(url: &str) -> Vec<(String, String)> {
+        let decode = |v: &str| {
+            let (mut bytes, mut it) = (Vec::new(), v.bytes());
+            while let Some(b) = it.next() {
+                bytes.push(match b {
+                    b'+' => b' ',
+                    b'%' => u8::from_str_radix(&String::from_utf8(vec![it.next().unwrap(), it.next().unwrap()]).unwrap(), 16).unwrap(),
+                    b => b,
+                });
+            }
+            String::from_utf8(bytes).unwrap()
+        };
+        let (_, query) = url.split_once('?').unwrap();
+        query.split('&').map(|pair| pair.split_once('=').map(|(k, v)| (decode(k), decode(v))).unwrap()).collect()
+    }
+
     #[test]
     fn issue_report_title_uses_sketch_workspace_and_description() {
         let mut app = app();
@@ -731,6 +805,7 @@ mod tests {
                 }
                 if clipboard {
                     draft.steps = "Reproduction context. ".repeat(100);
+                    draft.body = "Private diagnostic details. ".repeat(300);
                 }
                 h.app.issue_report.draft = Some(draft);
                 h.frames(16);
@@ -851,6 +926,46 @@ mod tests {
         assert!(draft.body.contains("Stock"), "fallback must retain the editable full report");
     }
 
+    /// A typical report goes in the link whole (#7103). The link used to take at most 2,000
+    /// characters, with every space and line break taking three: most reports didn't fit and
+    /// went through the clipboard, which then didn't hold the screenshot.
+    #[test]
+    fn issue_report_link_carries_a_typical_report_whole_and_exactly() {
+        let mut app = app();
+        app.run("solid.box", json!({"length":10,"width":10,"height":10})).unwrap();
+        let mut draft = draft_for(&app, None, None);
+        draft.description = "The fillet fails: \"radius 6 > 5\" & the preview shows #3 + 50% of the edge 🚀\n".repeat(8);
+        draft.steps = "1. Sketch a circle on XY\n2. Extrude it 10 mm\n3. Fillet the top edge with 6 mm".into();
+        let body = draft.report_body();
+        assert!(body.len() >= 1600, "as long as a typical report: {}", body.len());
+        let handoff = draft.handoff();
+        assert!(matches!(handoff.copy, Copied::Nothing), "the report fits the link: {}", handoff.url.len());
+        assert_eq!(query(&handoff.url), [("title".to_string(), draft.report_title()), ("body".to_string(), body)]);
+    }
+
+    /// GitHub refuses a link longer than about 8,200 characters, and drops one its sign-in page
+    /// encodes to more than about 7,600 (the form then comes back empty after signing in). A
+    /// report too long for that goes through the clipboard, never cut.
+    #[test]
+    fn issue_report_link_stays_within_what_github_keeps() {
+        for chunk in ["word ", "x", "ünïcødé ", "a&b=c#d+e%f\"g'\n"] {
+            let (mut fitted, mut refused) = (false, false);
+            for n in (0..8000).step_by(97) {
+                let body = chunk.repeat(n / chunk.len() + 1);
+                let (url, too_long) = draft_url("Fillet fails", &body);
+                if too_long {
+                    assert!(!url.contains("&body="), "{chunk:?}");
+                    refused = true;
+                } else {
+                    assert!(url.len() <= MAX_URL && sign_in_length(&url) <= MAX_SIGN_IN_URL, "{chunk:?} × {n}");
+                    assert_eq!(query(&url), [("title".to_string(), "Fillet fails".to_string()), ("body".to_string(), body)]);
+                    fitted = true;
+                }
+            }
+            assert!(fitted && refused, "{chunk:?}");
+        }
+    }
+
     #[test]
     fn issue_report_help_supports_successful_geometry_without_mutating_it() {
         let mut app = app();
@@ -925,6 +1040,7 @@ mod tests {
         assert!(h.widget("Reports are public. A GitHub account is required.").is_some());
         let commands = click_commands(&mut h, "Continue on GitHub");
         assert!(commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(text) if text == &reviewed)), "commands: {commands:?}");
+        assert!(!commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyImage(_))), "the text has the clipboard");
         assert!(
             commands.iter().any(|c| matches!(c, egui::OutputCommand::OpenUrl(url) if url.url.starts_with(ISSUE_URL) && !url.url.contains("&body=")))
         );
@@ -940,6 +1056,48 @@ mod tests {
         assert!(h.widget("Report text copied. Paste it into GitHub and submit your report there.").is_some());
     }
 
+    /// The report goes in the link, so Continue on GitHub copies the screenshot: one paste on
+    /// GitHub attaches it, where the report says to (#7103).
+    #[test]
+    fn issue_report_continue_copies_the_screenshot_when_the_report_fits_the_link() {
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        // Small enough that the fields scroll.
+        h.call("ui.resize", json!({"width":900,"height":600}));
+        let mut draft = draft_for(&h.app, None, None);
+        draft.description = "The preview disappeared after clicking Extrude.".into();
+        draft.image = Some(Arc::new(ColorImage::new([2, 2], vec![egui::Color32::GREEN; 4])));
+        let body = draft.report_body();
+        h.app.issue_report.draft = Some(draft);
+        h.frames(16);
+        for text in [
+            "Opens your browser with the report filled in, and copies the screenshot for you to paste there.",
+            "Continue on GitHub copies this image for you to paste into the report there.",
+        ] {
+            assert!(h.widget(text).is_some(), "{text}");
+        }
+        let commands = click_commands(&mut h, "Continue on GitHub");
+        assert!(commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyImage(image) if image.size == [2, 2])), "{commands:?}");
+        assert!(!commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_))), "the report text is in the link");
+        let url = commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(open) = c { Some(open.url.clone()) } else { None }).unwrap();
+        assert_eq!(query(&url).get(1).map(|(_, v)| v.clone()), Some(format!("{body}{PASTE_HINT}")));
+        let done = "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.";
+        // It stays in sight above the fields, however far they are scrolled.
+        let at = h.widget(done).unwrap();
+        let mut fields = Vec::new();
+        for delta in [1000, -1000] {
+            h.call("ui.scroll", json!({"x":450,"y":400,"delta":delta}));
+            h.frames(4);
+            fields.push(h.widget("What happened?"));
+            assert_eq!(h.widget(done), Some(at));
+        }
+        assert_ne!(fields[0], fields[1], "the fields scrolled");
+        // Copy report puts the text on the clipboard instead: the dialog no longer says the
+        // screenshot is there.
+        click_commands(&mut h, "Copy report");
+        assert!(!h.app.issue_report.draft.as_ref().unwrap().opened_github && h.widget(done).is_none());
+    }
+
     #[test]
     fn issue_report_blank_summary_uses_the_export_title_for_clipboard_guidance() {
         let mut h = crate::scenario::Harness::new();
@@ -947,7 +1105,13 @@ mod tests {
         let mut draft = draft_for(&h.app, None, None);
         draft.title.clear();
         draft.description = "d".repeat(160);
-        draft.body = "x".repeat(1500);
+        // Just long enough that the title drawn from the description takes the link over.
+        for n in (0..MAX_URL).step_by(16) {
+            draft.body = "x".repeat(n);
+            if draft_url(&draft.report_title(), &draft.report_body()).1 {
+                break;
+            }
+        }
         let reviewed = draft.report_body();
         assert!(!draft_url("", &reviewed).1, "the fallback title must be what crosses the URL limit");
         assert!(draft_url(&draft.report_title(), &reviewed).1);

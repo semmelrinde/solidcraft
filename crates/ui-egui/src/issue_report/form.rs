@@ -2,15 +2,29 @@
 
 use egui::{Id, Ui, vec2};
 
-use super::{Draft, MAX_ANSWER, MAX_BODY, draft_url};
+use super::{Copied, Draft, MAX_ANSWER, MAX_BODY};
 use crate::{SolveApp, i18n::tr_label, ui_kit};
 
-const ALL_GUIDANCE: [&str; 4] = [
+const ALL_GUIDANCE: [&str; 6] = [
     "Report text copied. Paste it into GitHub and submit your report there.",
     "Review your report on GitHub and click Submit new issue to publish it.",
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.",
     "Opens your browser and copies the report text for you to paste into GitHub.",
     "Opens your browser. Review and submit your report on GitHub.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.",
 ];
+
+/// What the dialog says Continue on GitHub does, or did.
+fn guidance(copy: &Copied, opened: bool) -> &'static str {
+    match (copy, opened) {
+        (Copied::Text(_), true) => ALL_GUIDANCE[0],
+        (Copied::Nothing, true) => ALL_GUIDANCE[1],
+        (Copied::Screenshot(_), true) => ALL_GUIDANCE[2],
+        (Copied::Text(_), false) => ALL_GUIDANCE[3],
+        (Copied::Nothing, false) => ALL_GUIDANCE[4],
+        (Copied::Screenshot(_), false) => ALL_GUIDANCE[5],
+    }
+}
 
 fn answer(ui: &mut Ui, label: &str, hint: &str, text: &mut String, id: &str, rows: usize) -> egui::Response {
     ui_kit::text(ui, tr_label(label), ui_kit::Text::Heading(label));
@@ -21,7 +35,7 @@ fn answer(ui: &mut Ui, label: &str, hint: &str, text: &mut String, id: &str, row
     response
 }
 
-fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui) -> bool {
+fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui, copied: bool) -> bool {
     let mut retake = false;
     ui.horizontal_wrapped(|ui| {
         retake = ui_kit::button(ui, tr_label("Retake screenshot"), ui_kit::Button::Normal).clicked();
@@ -37,7 +51,10 @@ fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui) -> boo
                 && let Some(image) = draft.image.as_ref()
             {
                 ui.ctx().copy_image((**image).clone());
-                draft.opened_github = false;
+                // Where Continue on GitHub copied the report text, this replaces it.
+                if !copied {
+                    draft.opened_github = false;
+                }
                 draft.note = "Paste the image into the GitHub draft, or save the PNG if image copying is unavailable.".into();
             }
             if ui_kit::button(ui, tr_label("Save screenshot…"), ui_kit::Button::Enabled(app.services.pick_save.is_some())).clicked()
@@ -63,24 +80,26 @@ fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui) -> boo
     retake
 }
 
-fn screenshot(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui) -> bool {
+/// `copied`: Continue on GitHub copies the screenshot, with the report in the link.
+fn screenshot(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui, copied: bool) -> bool {
     ui_kit::text(ui, tr_label("Screenshot (optional)"), ui_kit::Text::Heading("Screenshot (optional)"));
     let preview = draft.image.as_ref().map(|image| {
         draft.texture.get_or_insert_with(|| ui.ctx().load_texture("issue-report-frame", image.clone(), egui::TextureOptions::LINEAR)).clone()
     });
     let mut retake = false;
     let guidance = |ui: &mut Ui| {
-        ui_kit::text(
-            ui,
-            tr_label("This image is not attached to GitHub yet. Copy or save it, then attach it on GitHub."),
-            ui_kit::Text::Note("screenshot"),
-        );
+        let text = if copied {
+            "Continue on GitHub copies this image for you to paste into the report there."
+        } else {
+            "This image is not attached to GitHub yet. Copy or save it, then attach it on GitHub."
+        };
+        ui_kit::text(ui, tr_label(text), ui_kit::Text::Note("screenshot"));
     };
     if let Some(texture) = preview {
         ui.add(egui::Image::new(&texture).max_size(vec2(ui.available_width(), 130.0)).maintain_aspect_ratio(true));
         guidance(ui);
     }
-    retake |= screenshot_actions(app, draft, ui);
+    retake |= screenshot_actions(app, draft, ui, copied);
     retake
 }
 
@@ -97,8 +116,22 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
         .keep_open_on_escape()
         .actions(tr_label("Continue on GitHub"), tr_label("Close draft"), Some(tr_label("Copy report")))
         .show(ctx, true, |ui| {
-            // The card's own header, footer and margins come on top of the scrolling body.
-            let chrome = ui_kit::header_height() + t.form_footer_height + 6.0 * t.space_8;
+            let handoff = draft.handoff();
+            let copied = matches!(handoff.copy, Copied::Screenshot(_));
+            // What Continue on GitHub does, or did, stays in sight above the scrolling fields: after
+            // the click it says what to paste on GitHub. Reserve the tallest wording, so the card
+            // (and its footer) keeps its height as the guidance changes under a click.
+            let width = ui.available_width();
+            let font = egui::FontId::proportional(t.font_small);
+            let tallest = ALL_GUIDANCE
+                .iter()
+                .map(|g| ui.painter().layout(tr_label(g).to_string(), font.clone(), t.form_dim, width).size().y)
+                .fold(0.0_f32, f32::max);
+            ui.allocate_ui(vec2(width, tallest), |ui| {
+                ui_kit::text(ui, tr_label(guidance(&handoff.copy, draft.opened_github)), ui_kit::Text::Note("guidance"));
+            });
+            // The card's own header, footer, margins and guidance come on top of the scrolling body.
+            let chrome = ui_kit::header_height() + t.form_footer_height + 6.0 * t.space_8 + tallest + ui.spacing().item_spacing.y;
             let scroll = (screen.height() - 2.0 * t.space_16 - chrome).clamp(60.0, 640.0);
             // Sized outright, not from what is left: a card that fits its content grows frame by
             // frame otherwise, and the footer moves under a click.
@@ -109,30 +142,6 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
                     .min_scrolled_height(scroll)
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
-                        let body = draft.report_body();
-                        let (_, copy_needed) = draft_url(&draft.report_title(), &body);
-                        let guidance = if draft.opened_github {
-                            if copy_needed {
-                                "Report text copied. Paste it into GitHub and submit your report there."
-                            } else {
-                                "Review your report on GitHub and click Submit new issue to publish it."
-                            }
-                        } else if copy_needed {
-                            "Opens your browser and copies the report text for you to paste into GitHub."
-                        } else {
-                            "Opens your browser. Review and submit your report on GitHub."
-                        };
-                        // Reserve the tallest wording, so the card (and its footer) keeps its height as the
-                        // guidance changes under a click.
-                        let width = ui.available_width();
-                        let font = egui::FontId::proportional(t.font_small);
-                        let tallest = ALL_GUIDANCE
-                            .iter()
-                            .map(|g| ui.painter().layout(tr_label(g).to_string(), font.clone(), t.form_dim, width).size().y)
-                            .fold(0.0_f32, f32::max);
-                        ui.allocate_ui(vec2(width, tallest), |ui| {
-                            ui_kit::text(ui, tr_label(guidance), ui_kit::Text::Note("guidance"));
-                        });
                         ui_kit::text(ui, tr_label("Reports are public. A GitHub account is required."), ui_kit::Text::Note("public"));
                         ui_kit::divider(ui, "report");
                         ui_kit::text(ui, tr_label("Summary"), ui_kit::Text::Heading("Summary"));
@@ -178,7 +187,7 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
                         if steps.changed() || expected.changed() {
                             draft.opened_github = false;
                         }
-                        retake = screenshot(app, draft, ui);
+                        retake = screenshot(app, draft, ui, copied);
                         ui_kit::text(
                             ui,
                             tr_label("App/system information and command settings are included. Review private details before sharing."),
@@ -201,18 +210,23 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
         ui_kit::Action::Ok => {
             draft.missing_description = draft.description.trim().is_empty();
             if !draft.missing_description {
-                let body = draft.report_body();
-                let (url, copy_needed) = draft_url(&draft.report_title(), &body);
-                if copy_needed {
-                    ctx.copy_text(body);
+                let handoff = draft.handoff();
+                match handoff.copy {
+                    Copied::Text(text) => ctx.copy_text(text),
+                    Copied::Screenshot(image) => ctx.copy_image((*image).clone()),
+                    Copied::Nothing => {}
                 }
-                ctx.open_url(egui::OpenUrl::new_tab(url));
+                ctx.open_url(egui::OpenUrl::new_tab(handoff.url));
                 draft.opened_github = true;
                 ctx.request_repaint();
             }
         }
         ui_kit::Action::Apply => {
             ctx.copy_text(draft.report_body());
+            // It replaces the screenshot Continue on GitHub copied.
+            if matches!(draft.handoff().copy, Copied::Screenshot(_)) {
+                draft.opened_github = false;
+            }
             draft.note = "Report copied. Paste it into the GitHub draft if needed.".into();
         }
         _ => {}
