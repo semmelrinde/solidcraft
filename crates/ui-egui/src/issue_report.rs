@@ -171,6 +171,9 @@ pub struct Draft {
     focus_requested: bool,
     missing_description: bool,
     opened_github: bool,
+    /// The screenshot Continue on GitHub copied. A weak handle keeps its address from being
+    /// reused, not its pixels.
+    copied_image: std::sync::Weak<ColorImage>,
 }
 
 impl Draft {
@@ -189,6 +192,7 @@ impl Draft {
             focus_requested: false,
             missing_description: false,
             opened_github: false,
+            copied_image: std::sync::Weak::new(),
         }
     }
 
@@ -236,6 +240,13 @@ impl Draft {
         let (hint, copy) = if image_copy_works() { (PASTE_HINT, Copied::Screenshot(image)) } else { (DRAG_HINT, Copied::SaveScreenshot) };
         let (hinted, hint_too_long) = draft_url(&title, &format!("{body}{hint}"));
         Handoff { url: if hint_too_long { url } else { hinted }, copy }
+    }
+
+    /// Whether Continue on GitHub's hand-off still stands: after the click, and for a copied
+    /// screenshot, while that one is still the draft's. One that arrived late, was retaken or was
+    /// removed is not on the clipboard; the reporter would paste whatever is.
+    fn handed_off(&self, copy: &Copied) -> bool {
+        self.opened_github && !matches!(copy, Copied::Screenshot(image) if !std::ptr::eq(self.copied_image.as_ptr(), Arc::as_ptr(image)))
     }
 }
 
@@ -547,7 +558,7 @@ fn encode(value: &str) -> String {
     for b in value.bytes() {
         if b == b' ' {
             out.push('+');
-        } else if b.is_ascii_alphanumeric() || b"-_.~!$()*,;:@/?".contains(&b) {
+        } else if b.is_ascii_alphanumeric() || b"-_.~!$()*,:@/?".contains(&b) {
             out.push(char::from(b));
         } else {
             let _ = write!(&mut out, "%{b:02X}");
@@ -556,9 +567,10 @@ fn encode(value: &str) -> String {
     out
 }
 
-/// The length of `url` as GitHub's sign-in page carries it back: encoded once more.
+/// The length of `url` as GitHub's sign-in page carries it back: encoded once more, as Ruby's
+/// `CGI.escape` does (it encodes `*`).
 fn sign_in_length(url: &str) -> usize {
-    url.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.*~".contains(&b) { 1 } else { 3 }).sum()
+    url.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { 1 } else { 3 }).sum()
 }
 
 /// The link to a new issue with `title` and `body` filled in, and whether `body` was too long
@@ -1027,6 +1039,9 @@ mod tests {
     /// report too long for that goes through the clipboard, never cut.
     #[test]
     fn issue_report_link_stays_within_what_github_keeps() {
+        // Some query parsers also split on `;`; Ruby's CGI.escape, on the sign-in page, encodes `*`.
+        assert_eq!(encode("a;b*c"), "a%3Bb*c");
+        assert_eq!(sign_in_length("a;*"), 7);
         for chunk in ["word ", "x", "ünïcødé ", "a&b=c#d+e%f\"g'\n"] {
             let (mut fitted, mut refused) = (false, false);
             for n in (0..8000).step_by(97) {
@@ -1158,7 +1173,10 @@ mod tests {
             assert!(h.widget(text).is_some(), "{text}");
         }
         assert_eq!(button_disabled(&h, "Copy screenshot"), Some(false));
+        let footer = h.widget("Continue on GitHub");
         let commands = click_commands(&mut h, "Continue on GitHub");
+        // The longer guidance after the click fits the height held for it: the card keeps its size.
+        assert_eq!(h.widget("Continue on GitHub"), footer);
         assert!(commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyImage(image) if image.size == [2, 2])), "{commands:?}");
         assert!(!commands.iter().any(|c| matches!(c, egui::OutputCommand::CopyText(_))), "the report text is in the link");
         let url = commands.iter().find_map(|c| if let egui::OutputCommand::OpenUrl(open) = c { Some(open.url.clone()) } else { None }).unwrap();
@@ -1178,6 +1196,37 @@ mod tests {
         // screenshot is there.
         click_commands(&mut h, "Copy report");
         assert!(!h.app.issue_report.draft.as_ref().unwrap().opened_github && h.widget(done).is_none());
+    }
+
+    /// The dialog says the screenshot is copied only while it is the one Continue on GitHub
+    /// copied. One that arrives after the click, or a retake, is not on the clipboard: the
+    /// reporter would paste whatever is into a public issue (#7103).
+    #[test]
+    fn issue_report_says_copied_only_for_the_screenshot_continue_copied() {
+        let done = "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.";
+        let before = "Opens your browser with the report filled in, and copies the screenshot for you to paste there.";
+        let image = || Some(Arc::new(ColorImage::new([2, 2], vec![egui::Color32::GREEN; 4])));
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        let mut draft = draft_for(&h.app, None, None);
+        draft.description = "The preview disappeared after clicking Extrude.".into();
+        h.app.issue_report.draft = Some(draft);
+        h.frames(16);
+        // Continue before the screenshot arrives: nothing is copied.
+        click_commands(&mut h, "Continue on GitHub");
+        assert!(h.widget("Review your report on GitHub and click Submit new issue to publish it.").is_some());
+        h.app.issue_report.draft.as_mut().unwrap().image = image();
+        h.frames(4);
+        assert!(h.widget(done).is_none() && h.widget(before).is_some(), "a late screenshot was never copied");
+        // Continue copies it; a retake replaces it with one that isn't on the clipboard.
+        click_commands(&mut h, "Continue on GitHub");
+        assert!(h.widget(done).is_some());
+        h.app.issue_report.draft.as_mut().unwrap().image = image();
+        h.frames(4);
+        assert!(h.widget(done).is_none() && h.widget(before).is_some(), "the retake was never copied");
+        // Copy screenshot puts the current one there.
+        click_commands(&mut h, "Copy screenshot");
+        assert!(h.widget(done).is_some());
     }
 
     /// Where images can't be copied (a Wayland session without X11, the Flatpak among them),

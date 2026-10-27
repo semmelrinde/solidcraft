@@ -1,5 +1,7 @@
 //! The reviewed report form. User answers stay separate from collected diagnostics.
 
+use std::sync::Arc;
+
 use egui::{Id, Ui, vec2};
 
 use super::{Copied, Draft, MAX_ANSWER, MAX_BODY};
@@ -61,6 +63,7 @@ fn screenshot_actions(app: &mut SolveApp, draft: &mut Draft, ui: &mut Ui, copied
                 if !copied {
                     draft.opened_github = false;
                 }
+                draft.copied_image = Arc::downgrade(image);
                 draft.note = "Paste the image into the GitHub draft, or save the PNG if image copying is unavailable.".into();
             }
             if ui_kit::button(ui, tr_label("Save screenshot…"), ui_kit::Button::Enabled(app.services.pick_save.is_some())).clicked()
@@ -134,9 +137,13 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
             let tallest = ALL_GUIDANCE
                 .iter()
                 .map(|g| ui.painter().layout(tr_label(g).to_string(), font.clone(), t.form_dim, width).size().y)
-                .fold(0.0_f32, f32::max);
+                .fold(0.0_f32, f32::max)
+                // A note pads its text above and below.
+                + 2.0 * t.space_4;
             ui.allocate_ui(vec2(width, tallest), |ui| {
-                ui_kit::text(ui, tr_label(guidance(&handoff.copy, draft.opened_github)), ui_kit::Text::Note("guidance"));
+                // allocate_ui only takes what its content uses: hold the height outright.
+                ui.set_min_height(tallest);
+                ui_kit::text(ui, tr_label(guidance(&handoff.copy, draft.handed_off(&handoff.copy))), ui_kit::Text::Note("guidance"));
             });
             // The card's own header, footer, margins and guidance come on top of the scrolling body.
             let chrome = ui_kit::header_height() + t.form_footer_height + 6.0 * t.space_8 + tallest + ui.spacing().item_spacing.y;
@@ -224,7 +231,10 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
                 let handoff = draft.handoff();
                 match handoff.copy {
                     Copied::Text(text) => ctx.copy_text(text),
-                    Copied::Screenshot(image) => ctx.copy_image((*image).clone()),
+                    Copied::Screenshot(image) => {
+                        draft.copied_image = Arc::downgrade(&image);
+                        ctx.copy_image((*image).clone());
+                    }
                     Copied::SaveScreenshot | Copied::Nothing => {}
                 }
                 ctx.open_url(egui::OpenUrl::new_tab(handoff.url));
