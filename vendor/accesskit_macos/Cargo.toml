@@ -40,6 +40,12 @@ default-target = "x86_64-apple-darwin"
 name = "accesskit_macos"
 path = "src/lib.rs"
 
+# SolidCraft: accesskit_macos 0.27.2's tests of the subclassing adapter, with its fix (vendor/README.md).
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
+harness = false
+
 [dependencies.accesskit]
 version = "0.24.1"
 
@@ -76,3 +82,6 @@ features = [
     "NSValue",
     "NSThread",
 ]
+
+[dev-dependencies.libtest-mimic]
+version = "0.8.2"
