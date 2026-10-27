@@ -8,6 +8,15 @@
     "Images can't be copied here. Save the screenshot instead.": "Images can't be copied here. Save the screenshot instead.",
     "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub."
   },
+  "ar": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "تم ملء تقريرك في GitHub ونُسخت لقطة الشاشة: انقر في الوصف هناك، والصق (Ctrl+V، أو ⌘V على Mac)، ثم انقر Submit new issue.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "يفتح متصفحك والتقرير معبّأ، وينسخ لقطة الشاشة لتلصقها هناك.",
+    "Continue on GitHub copies this image for you to paste into the report there.": "ينسخ «المتابعة في GitHub» هذه الصورة لتلصقها في التقرير هناك.",
+    "Your report is filled in on GitHub. Save the screenshot, drag the PNG into the description there, then click Submit new issue.": "تم ملء تقريرك في GitHub. احفظ لقطة الشاشة، واسحب ملف PNG إلى الوصف هناك، ثم انقر Submit new issue.",
+    "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.": "يفتح متصفحك والتقرير معبّأ. لا يمكن نسخ الصور هنا: احفظ لقطة الشاشة واسحب ملف PNG إلى الوصف.",
+    "Images can't be copied here. Save the screenshot instead.": "لا يمكن نسخ الصور هنا. احفظ لقطة الشاشة بدلًا من ذلك.",
+    "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "لا يمكن نسخ الصور هنا. احفظ هذه الصورة، ثم اسحب ملف PNG إلى الوصف في GitHub."
+  },
   "de": {
     "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "Der Bericht ist auf GitHub ausgefüllt und der Screenshot kopiert: Dort in die Beschreibung klicken, einfügen (Strg+V, auf dem Mac ⌘V) und auf Submit new issue klicken.",
     "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "Öffnet den Browser mit dem ausgefüllten Bericht und kopiert den Screenshot zum Einfügen dort.",
@@ -16,6 +25,15 @@
     "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.": "Öffnet den Browser mit dem ausgefüllten Bericht. Bilder lassen sich hier nicht kopieren: Den Screenshot speichern und die PNG-Datei in die Beschreibung ziehen.",
     "Images can't be copied here. Save the screenshot instead.": "Bilder lassen sich hier nicht kopieren. Speichern Sie den Screenshot stattdessen.",
     "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "Bilder lassen sich hier nicht kopieren. Speichern Sie dieses und ziehen Sie die PNG-Datei auf GitHub in die Beschreibung."
+  },
+  "he": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "הדיווח שלך מולא ב־GitHub וצילום המסך הועתק: לחץ בתיאור שם, הדבק (Ctrl+V, או ⌘V ב־Mac), ואז לחץ על Submit new issue.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "פותח את הדפדפן עם הדיווח ממולא, ומעתיק את צילום המסך כדי שתדביק אותו שם.",
+    "Continue on GitHub copies this image for you to paste into the report there.": "„המשך ב־GitHub” מעתיק את התמונה הזו כדי שתדביק אותה בדיווח שם.",
+    "Your report is filled in on GitHub. Save the screenshot, drag the PNG into the description there, then click Submit new issue.": "הדיווח שלך מולא ב־GitHub. שמור את צילום המסך, גרור את קובץ ה־PNG לתיאור שם, ואז לחץ על Submit new issue.",
+    "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.": "פותח את הדפדפן עם הדיווח ממולא. כאן אי אפשר להעתיק תמונות: שמור את צילום המסך וגרור את קובץ ה־PNG לתיאור.",
+    "Images can't be copied here. Save the screenshot instead.": "כאן אי אפשר להעתיק תמונות. שמור את צילום המסך במקום זאת.",
+    "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "כאן אי אפשר להעתיק תמונות. שמור את התמונה הזו, ואז גרור את קובץ ה־PNG לתיאור ב־GitHub."
   },
   "ja": {
     "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "GitHubにレポートが入力され、スクリーンショットがコピーされました。説明欄をクリックして貼り付け（Ctrl+V、Macでは⌘V）、Submit new issueをクリックしてください。",
