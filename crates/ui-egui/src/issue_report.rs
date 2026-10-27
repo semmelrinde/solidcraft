@@ -192,12 +192,14 @@ impl Draft {
         }
     }
 
+    /// At most 160 characters, as the Summary field allows: not bytes, which would cut a title
+    /// in Chinese or Japanese to a third.
     fn report_title(&self) -> String {
         if self.title.trim().is_empty() {
-            let summary = limited(self.description.trim().lines().next().unwrap_or_default(), 160);
-            limited(&format!("{}{summary}", self.title_prefix), 160)
+            let summary: String = self.description.trim().lines().next().unwrap_or_default().chars().take(160).collect();
+            format!("{}{summary}", self.title_prefix).chars().take(160).collect()
         } else {
-            limited(&self.title, 160)
+            self.title.chars().take(160).collect()
         }
     }
 
@@ -563,7 +565,7 @@ fn sign_in_length(url: &str) -> usize {
 /// for it (the link then carries the title alone). Long drafts stay local and can be copied
 /// into the browser editor; never discard them.
 pub fn draft_url(title: &str, body: &str) -> (String, bool) {
-    let title = limited(title, 160);
+    let title: String = title.chars().take(160).collect();
     let base = format!("{ISSUE_URL}?title={}", encode(&title));
     if body.len() <= MAX_URL {
         let url = format!("{base}&body={}", encode(body));
@@ -791,6 +793,31 @@ mod tests {
         let mut draft = draft_for(&app, None, Some("Synthetic command error"));
         draft.description = "Line could not be drawn".into();
         assert_eq!(draft.report_title(), "Sketch: operation failed");
+    }
+
+    /// The Summary takes 160 characters, and they all reach GitHub: a title in Chinese was cut at
+    /// 160 bytes, about 53 characters, in the field, the report and the link (#7103).
+    #[test]
+    fn issue_report_summary_limit_counts_characters_not_bytes() {
+        let long: String = "圆角预览在半径改变时消失".chars().cycle().take(200).collect();
+        let first: String = long.chars().take(160).collect();
+        let mut h = crate::scenario::Harness::new();
+        h.app.home.open = false;
+        let mut draft = draft_for(&h.app, None, None);
+        draft.title = long.clone();
+        draft.description = long.clone();
+        h.app.issue_report.draft = Some(draft);
+        h.frames(4);
+        let draft = h.app.issue_report.draft.as_mut().unwrap();
+        assert_eq!(draft.title, first, "the field keeps 160 characters");
+        draft.title = long.clone();
+        assert_eq!(draft.report_title(), first);
+        assert_eq!(query(&draft_url(&long, "").0)[0].1, first);
+        // A blank Summary takes its title from the description, still 160 characters in all.
+        draft.title.clear();
+        let title = draft.report_title();
+        assert_eq!(title.chars().count(), 160);
+        assert!(long.starts_with(title.strip_prefix(draft.title_prefix.as_str()).unwrap()), "{title}");
     }
 
     #[test]

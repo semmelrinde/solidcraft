@@ -164,7 +164,10 @@ pub(super) fn show(app: &mut SolveApp, draft: &mut Draft, ctx: &egui::Context) -
                         if response.changed() {
                             draft.opened_github = false;
                         }
-                        super::truncate(&mut draft.title, 160);
+                        // 160 characters, as the editor counts them.
+                        if let Some((end, _)) = draft.title.char_indices().nth(160) {
+                            draft.title.truncate(end);
+                        }
                         let response = answer(ui, "What happened?", "Describe the problem you saw", &mut draft.description, "issue_report_body", 3);
                         if response.changed() {
                             draft.opened_github = false;
