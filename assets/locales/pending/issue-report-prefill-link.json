@@ -44,6 +44,15 @@
     "Images can't be copied here. Save the screenshot instead.": "ここでは画像をコピーできません。代わりにスクリーンショットを保存してください。",
     "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "ここでは画像をコピーできません。この画像を保存し、GitHubの説明欄にPNGをドラッグしてください。"
   },
+  "vi": {
+    "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "Báo cáo của bạn đã được điền sẵn trên GitHub và ảnh chụp màn hình đã được sao chép: hãy nhấp vào phần mô tả ở đó, dán (Ctrl+V, hoặc ⌘V trên máy Mac), rồi nhấp 'Submit new issue'.",
+    "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "Mở trình duyệt với báo cáo đã được điền sẵn và sao chép ảnh chụp màn hình để bạn dán vào đó.",
+    "Continue on GitHub copies this image for you to paste into the report there.": "'Tiếp tục trên GitHub' sẽ sao chép ảnh này để bạn dán vào báo cáo ở đó.",
+    "Your report is filled in on GitHub. Save the screenshot, drag the PNG into the description there, then click Submit new issue.": "Báo cáo của bạn đã được điền sẵn trên GitHub. Hãy lưu ảnh chụp màn hình, kéo tệp PNG vào phần mô tả ở đó, rồi nhấp 'Submit new issue'.",
+    "Opens your browser with the report filled in. Images can't be copied here: save the screenshot and drag the PNG into the description.": "Mở trình duyệt với báo cáo đã được điền sẵn. Không thể sao chép ảnh ở đây: hãy lưu ảnh chụp màn hình và kéo tệp PNG vào phần mô tả.",
+    "Images can't be copied here. Save the screenshot instead.": "Không thể sao chép ảnh ở đây. Hãy lưu ảnh chụp màn hình thay vào đó.",
+    "Images can't be copied here. Save this one, then drag the PNG into the description on GitHub.": "Không thể sao chép ảnh ở đây. Hãy lưu ảnh này, rồi kéo tệp PNG vào phần mô tả trên GitHub."
+  },
   "zh": {
     "Your report is filled in on GitHub and the screenshot is copied: click in the description there, paste (Ctrl+V, or ⌘V on a Mac), then click Submit new issue.": "报告已填入GitHub，截图已复制：请点击GitHub中的描述框并粘贴（Ctrl+V，Mac上为⌘V），然后点击Submit new issue。",
     "Opens your browser with the report filled in, and copies the screenshot for you to paste there.": "打开浏览器并填好报告，同时复制截图以便在那里粘贴。",
