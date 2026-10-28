@@ -739,6 +739,7 @@ fn corner_toasts_share_one_width_against_the_right_edge() {
         }
     }
     ToastPlace::Corner.publish(&ctx);
+}
 
 /// A dashed line reaching far off screen is cut to the view before it is dashed: epaint makes a
 /// shape per dash and steps along in f32, so one a trillion points long made billions of them,

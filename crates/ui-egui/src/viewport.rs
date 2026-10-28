@@ -352,7 +352,9 @@ pub(crate) fn dashed_line(pts: &[Pos2], clip: Rect, stroke: Stroke, dash: f32, g
         let len = f64::from(a.distance(b));
         match clip_segment(a, b, bounds).filter(|_| len.is_finite()) {
             Some((t0, t1)) => {
-                let (from, to) = (a + (b - a) * t0 as f32, a + (b - a) * t1 as f32);
+                // In f64: a cut a trillion points from `a` is lost in f32.
+                let at = |t: f64| pos2((f64::from(a.x) + f64::from(b.x - a.x) * t) as f32, (f64::from(a.y) + f64::from(b.y - a.y) * t) as f32);
+                let (from, to) = (at(t0), at(t1));
                 if run.is_empty() || t0 > 0.0 {
                     flush(&mut run, offset);
                     // How far into its period the pattern is where the run begins: a cut run

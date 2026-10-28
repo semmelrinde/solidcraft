@@ -1189,7 +1189,13 @@ fn radius_spline_handles(app: &SolveApp, ui: &mut egui::Ui, painter: &egui::Pain
         let at = |u: f64| e.start + (e.other - e.start) * u;
         let g = e.spline.greville();
         let tips: Vec<Option<Pos2>> = g.iter().zip(&e.spline.radii).map(|(u, r)| proj.to_screen(at(*u) + e.n * *r)).collect();
-        painter.extend(crate::viewport::dashed_line(&tips.iter().flatten().copied().collect::<Vec<_>>(), painter.clip_rect(), Stroke::new(1.0, t.manipulator), 4.0, 3.0));
+        painter.extend(crate::viewport::dashed_line(
+            &tips.iter().flatten().copied().collect::<Vec<_>>(),
+            painter.clip_rect(),
+            Stroke::new(1.0, t.manipulator),
+            4.0,
+            3.0,
+        ));
         for (k, (u, ts)) in g.iter().zip(&tips).enumerate() {
             let Some(ts) = *ts else { continue };
             crate::scenario::publish_handle(&if i == 0 { format!("fillet_r{k}") } else { format!("fillet_e{i}_r{k}") }, ts);
