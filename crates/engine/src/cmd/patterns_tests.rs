@@ -627,6 +627,54 @@ fn one_extrude_of_many_sketch_circles_scales_linearly() {
     }
 }
 
+/// A plate with an `n` × 4 feature pattern of one Ø2 boss sketched on its top face and joined:
+/// how long the pattern took. It runs on its own thread so a hang fails the test instead of CI.
+fn boss_pattern(n: usize) -> std::time::Duration {
+    use std::time::{Duration, Instant};
+    let mut s = Session::default();
+    run(
+        &mut s,
+        "solid.box",
+        json!({"corner": [-100, -50, 0], "length": 200, "width": 100, "height": 1, "operation": "new_body", "body_name": "Plate"}),
+    );
+    run(&mut s, "sketch.create", json!({"plane": {"face": [0, 0, 1]}, "name": "B"}));
+    run(&mut s, "sketch.circle.center", json!({"center": [-96, 0], "diameter": 2}));
+    run(&mut s, "sketch.finish", json!({}));
+    run(&mut s, "solid.extrude", json!({"sketch": "B", "distance": "2", "operation": "join", "targets": ["Plate"], "name": "Boss"}));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let t = Instant::now();
+        let r = s.execute(
+            "solid.pattern.rectangular",
+            &json!({"features": ["Boss"], "dir1": [1, 0, 0], "count1": n, "spacing1": 6, "dir2": [0, 1, 0], "count2": 4, "spacing2": 6}),
+        );
+        let took = t.elapsed();
+        let m = r.map(|_| run(&mut s, "inspect.measure", json!({}))).map_err(|e| e.to_string());
+        let _ = tx.send((m, took));
+    });
+    let (m, took) = rx.recv_timeout(Duration::from_secs(900)).expect("the boss pattern did not finish within 900 s");
+    let m = m.expect("pattern");
+    let bosses = (4 * n) as f64;
+    let v = m["total"]["volume_mm3"].as_f64().unwrap_or(f64::NAN);
+    // The measure meshes the bosses: allow 0.1 % a boss, as for the holes.
+    assert!((v - (200.0 * 100.0 + bosses * 2.0 * PI)).abs() < bosses * 2.0 * PI * 1e-3, "{bosses} bosses: {v}");
+    assert_eq!(m["bodies"].as_array().map(Vec::len), Some(1), "{m}");
+    took
+}
+
+/// A feature pattern of a join (#8580): every copy was joined on its own into an ever more
+/// complex body, while eight or more copies of a cut are cut at once (#261) and one extrude of
+/// many profiles joins them at once (#2064, plain extrusions only: a sketch on a face makes none).
+/// 32 bosses took 20 s in a release build, and a 2 × 3 pattern of eleven extrudes 50 s. Copies
+/// clear of each other now join at once. Linear is 4×. A ratio, not a time (see the 512-hole
+/// pattern test).
+#[test]
+fn pattern_of_join_bosses_scales_linearly() {
+    if let Err(missed) = scales_linearly(|| (boss_pattern(8), boss_pattern(32))) {
+        panic!("32 bosses, then 128, took {missed}");
+    }
+}
+
 /// A bar with sawtooth teeth cut along one side (#400): the tooth profile drawn once, or all
 /// `teeth` in one sketch. Each tooth's slope starts on the previous tooth's wall.
 fn sawtooth_bar(teeth: usize, pattern: bool) -> (Session, Option<u64>) {

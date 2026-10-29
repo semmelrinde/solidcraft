@@ -2862,6 +2862,18 @@ fn common_join_target(state: &ModelState, indices: &[usize], tools: &[Traced]) -
     Ok(common.filter(|index| contacts.iter().all(|contact| *contact == Some(*index))))
 }
 
+/// Tools clear of each other as one body of many pieces, so the target is joined or cut once:
+/// extrusions apart (#2064), and copies whose boxes are apart (`copies`, a pattern's or mirror's:
+/// the copies of an extrude sketched on a face are no plain extrusions, #8580). `None` when any
+/// two may meet: the caller joins or cuts them one by one.
+fn tools_as_one(tools: &[Traced], copies: bool) -> Option<Body> {
+    let bodies: Vec<Body> = tools.iter().map(|tool| tool.body.clone()).collect();
+    if let Ok(Some(compound)) = kernel::compound_disjoint_extrusions(&bodies) {
+        return Some(compound);
+    }
+    if copies { kernel::union_apart(&bodies).ok().flatten() } else { None }
+}
+
 fn apply_op(doc: &Document, state: &mut ModelState, f: &Feature, tools: Vec<Body>, op: Operation, targets: &[String]) -> Result<()> {
     apply_traced(doc, state, f, tools.into_iter().map(Traced::unnamed).collect(), op, targets)
 }
@@ -3024,13 +3036,15 @@ fn apply_traced_with(
         }
     }
     // Batching solid targets must preserve Join's absorption order,
-    // sheet material tracking and the separate bodies of a New Body extrusion.
+    // sheet material tracking and the separate bodies of a New Body extrusion. A pattern's or
+    // mirror's copies of one feature are batched too, whatever they are (#8580).
+    let copies = matches!(f.kind, FeatureKind::Pattern { .. } | FeatureKind::Mirror { .. });
     if tools.len() > 1
-        && matches!(f.kind, FeatureKind::Extrude { .. })
+        && (copies || matches!(f.kind, FeatureKind::Extrude { .. }))
         && matches!(op, Operation::Join | Operation::Cut)
         && !target_idx.is_empty()
         && target_idx.iter().all(|i| state.bodies.get(*i).is_some_and(|b| !b.body.is_mesh() && !state.sheets.iter().any(|s| s.body == b.name)))
-        && let Ok(Some(compound)) = kernel::compound_disjoint_extrusions(&tools.iter().map(|tool| tool.body.clone()).collect::<Vec<_>>())
+        && let Some(compound) = tools_as_one(&tools, copies)
     {
         let target = if target_idx.len() == 1 {
             target_idx.first().copied()
