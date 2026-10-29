@@ -867,9 +867,10 @@ fn arc_aim(sk: &Sketch, ci: usize, at: Vec2, cmd: &str) -> Result<Option<ArcAim>
         for piece in &pieces {
             for q in support::hits(&circle, piece, &mut budget)? {
                 let travel = if at_b { (q - centre).angle() - end_angle } else { end_angle - (q - centre).angle() }.rem_euclid(TAU);
-                // The growing end itself, or past the arc's far end (where the extension would
-                // run over the arc).
-                if travel <= angle_tol || travel > reach + far_tol {
+                // The growing end itself (within the intersection's tolerance: a line ending there
+                // that touches the circle is found a hair beyond it), or past the arc's far end
+                // (where the extension would run over the arc).
+                if travel <= far_tol || travel > reach + far_tol {
                     continue;
                 }
                 keep_stop(&mut best, travel, q, oi, angle_tol);
