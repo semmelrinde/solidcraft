@@ -321,8 +321,14 @@ fn bracket(sk: &Sketch, ci: usize, tq: f64) -> (Vec<(f64, Vec2, usize)>, bool) {
     let (t0, t1) = sh.range();
     let full = sh.is_full();
     let span = t1 - t0;
-    let mut cuts: Vec<(f64, Vec2, usize)> =
-        cut_points(sk, ci).into_iter().filter(|(t, _, _)| full || (*t > t0 + 1e-9 * span && *t < t1 - 1e-9 * span)).collect();
+    // A cut within rounding of the curve's own end is that end. A curve ending where another one
+    // ends crosses it there only within the intersection's tolerance, and a cut a hair inside
+    // left a piece of no length. Cuts closer than that to each other are already one (`add_cut`).
+    let ends = if full { Vec::new() } else { vec![sh.point(t0), sh.point(t1)] };
+    let mut cuts: Vec<(f64, Vec2, usize)> = cut_points(sk, ci)
+        .into_iter()
+        .filter(|(t, _, _)| full || (*t > t0 + 1e-9 * span && *t < t1 - 1e-9 * span && ends.iter().all(|e| e.dist(sh.point(*t)) >= TOL * 10.0)))
+        .collect();
     cuts.sort_by(|a, b| a.0.total_cmp(&b.0));
     if full {
         if cuts.len() < 2 {
