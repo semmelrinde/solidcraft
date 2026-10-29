@@ -992,6 +992,25 @@ fn midpoint_rejects_wrong_picks_without_changing_the_sketch() {
     }
 }
 
+#[test]
+fn coincident_refuses_a_lines_two_ends() {
+    let mut s = new_sketch();
+    run(&mut s, "sketch.line", json!({"points":[[0,0],[60,0]],"infer":false,"connect":false}));
+    run(&mut s, "sketch.line", json!({"points":[[0,20],[60,20]],"infer":false,"connect":false}));
+    // The line would shrink to a point, leaving a later Parallel or Perpendicular on it no
+    // direction to hold.
+    for params in [json!({"a":"l1.start","b":"l1.end"}), json!({"a":"l1.end","b":"l1.start"})] {
+        let before = s.doc.to_json();
+        let undo = s.undo.len();
+        let err = s.execute("sketch.constraint.coincident", &params).unwrap_err().to_string();
+        assert!(err.contains("shrink to a point"), "{params}: {err}");
+        assert_eq!(s.doc.to_json(), before, "{params}");
+        assert_eq!(s.undo.len(), undo, "{params}");
+    }
+    // Ends of two different lines still join.
+    run(&mut s, "sketch.constraint.coincident", json!({"a":"l1.end","b":"l2.end"}));
+}
+
 /// A parameter's row in `parameters.list` (Null when there is none).
 fn param_row(s: &mut Session, name: &str) -> Value {
     let l = run(s, "parameters.list", json!({}));
