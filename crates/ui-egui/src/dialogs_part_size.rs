@@ -160,7 +160,8 @@ pub fn start(app: &SolveApp, id: &str) -> Option<(Kind, Vec<SelInput>)> {
 /// Select the context menu's exact target before using the normal command-start lifecycle.
 pub fn open(app: &mut SolveApp, component: u64) {
     if Resize::new(app, component).is_none() {
-        app.set_status("Select an inserted standard part to change its size", true);
+        let hint = app.tr("ui.part_size_needs_a_part").to_owned();
+        app.set_status(hint, true);
         return;
     }
     app.session.selection.clear();
@@ -386,6 +387,29 @@ mod tests {
         app.session.selection = vec![Sel::Body { name: body }, Sel::Plane { name: "XY".into() }];
         assert!(selected_component(&app).is_none());
         assert!(!context_menu::items(&app, &Target::Component { id: 0 }).iter().any(|i| i.id == "parts.resize"));
+    }
+
+    /// Change Part Size started with no standard part selected (nothing, or a plain body), as
+    /// the command search starts it, says what it works on instead of the command's
+    /// "`component` must be an id or a name"; Standard Parts opens the Insert Part dialog instead
+    /// of doing nothing (#8735).
+    #[test]
+    fn part_size_without_a_part_explains_itself_and_standard_parts_opens_the_library() {
+        let mut app = SolveApp::new(Session::default(), crate::Services::default());
+        app.run("solid.box", json!({"length": 10, "width": 10, "height": 10})).unwrap();
+        let body = app.session.world_state().bodies.first().map(|b| b.name.clone()).unwrap();
+        for selection in [vec![], vec![Sel::Body { name: body }]] {
+            app.session.selection = selection;
+            app.status = None;
+            app.start("parts.resize");
+            assert!(app.dialog.is_none());
+            let (text, _, error) = app.status.clone().expect("a status message");
+            assert!(error);
+            assert_eq!(text, app.tr("ui.part_size_needs_a_part"));
+        }
+        app.session.selection.clear();
+        app.start("parts.library");
+        assert!(matches!(app.dialog.as_ref().map(|d| &d.kind), Some(Kind::Part(_))));
     }
 
     #[test]
