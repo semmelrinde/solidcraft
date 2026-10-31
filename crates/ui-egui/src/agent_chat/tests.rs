@@ -2258,9 +2258,9 @@ fn the_agent_list_keeps_the_panels_side_margin() {
         }
         let at = |label: &str| texts.iter().find(|(text, r)| text == label && panel.contains(r.center())).map(|(_, r)| *r);
         let margin = crate::theme::Tokens::get().space_12 - 0.5;
-        let agent = at(&tr("ui.agent_chat_pick")).expect("the Agent row");
+        let agent = at(tr("ui.agent_chat_pick")).expect("the Agent row");
         assert!(agent.left() >= panel.left() + margin, "{layout:?}: Agent at {agent:?} in {panel:?}");
-        let refresh = at(&tr("ui.agent_chat_refresh")).expect("Refresh");
+        let refresh = at(tr("ui.agent_chat_refresh")).expect("Refresh");
         assert!(refresh.right() <= panel.right() - margin, "{layout:?}: Refresh at {refresh:?} in {panel:?}");
     }
 }
