@@ -1910,7 +1910,23 @@ fn conflict_probe(sk: &Sketch, new: &[String]) -> Vec<String> {
     if sk.constraints.len() > CONFLICT_PROBE_MAX || holds(sk) {
         return Vec::new();
     }
-    let mut keep: std::collections::HashSet<String> = sk.constraints.iter().filter(|c| !is_new(c)).map(|c| c.id.clone()).collect();
+    // Only a constraint on variables the solver couples to the new ones' can keep them
+    // unsatisfiable; the others solve on their own whatever the new ones ask. Ruling each of
+    // them out cost a failing solve, so refusing a constraint in a sketch of a few dozen took
+    // seconds on the window thread; they are left out of the probe from the start, which names
+    // the same constraints.
+    let (mut points, mut radii) = (Vec::new(), Vec::new());
+    for c in sk.constraints.iter().filter(|c| is_new(c)) {
+        points.extend(sk.constraint_points(&c.kind));
+        radii.extend(c.kind.indices().1);
+    }
+    let (points, radii) = sk.coupled(&points, &radii);
+    let coupled = |c: &solidcraft_sketch::Constraint| {
+        sk.constraint_points(&c.kind).iter().any(|p| points.get(*p).copied().unwrap_or(true))
+            || c.kind.indices().1.iter().any(|r| radii.get(*r).copied().unwrap_or(true))
+    };
+    let mut keep: std::collections::HashSet<String> =
+        sk.constraints.iter().filter(|c| !is_new(c) && coupled(c)).map(|c| c.id.clone()).collect();
     for id in sk.constraints.iter().filter(|c| !is_new(c)).map(|c| c.id.clone()).collect::<Vec<_>>() {
         if !keep.contains(&id) {
             continue;
