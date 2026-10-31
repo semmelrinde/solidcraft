@@ -29,6 +29,11 @@
     "color.green": "초록",
     "color.red": "빨강"
   },
+  "vi": {
+    "color.blue": "Xanh dương",
+    "color.green": "Xanh lá",
+    "color.red": "Đỏ"
+  },
   "zh": {
     "color.blue": "蓝色",
     "color.green": "绿色",
