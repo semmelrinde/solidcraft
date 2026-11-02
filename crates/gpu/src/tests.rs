@@ -320,3 +320,144 @@ fn bench_plate() {
         println!("| {tol} | {:.1} ms | {:.1} ms | {:.1} ms | {g} | {nr} / {np} |", median(r), median(p), median(c));
     }
 }
+
+/// Strict WGSL, as Chrome's compiler reads it, wants parentheses where an expression mixes a
+/// shift with another binary operator, two different bitwise operators, a bitwise operator with
+/// arithmetic, a comparison or `&&`/`||`, or `&&` with `||`. naga takes all of these, so a shader
+/// could pass every other test and draw nothing in Chrome (#11080). The lines of `source` with
+/// such a mix in one parenthesised group.
+fn unparenthesised_mixes(source: &str) -> Vec<usize> {
+    const OPERATORS: [&str; 19] =
+        ["<<=", ">>=", "<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "->", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^="];
+    const BINARY: [&str; 18] = ["<<", ">>", "&", "|", "^", "+", "-", "*", "/", "%", "<", ">", "<=", ">=", "==", "!=", "&&", "||"];
+    #[derive(Clone, Copy, PartialEq)]
+    enum Last {
+        // A name or number ending at this byte (a number never opens a template list).
+        Word(usize, bool),
+        Operand,
+        Other,
+    }
+    let mixes = |ops: &[&str]| {
+        let kinds = |set: &[&str]| set.iter().filter(|kind| ops.contains(kind)).count();
+        let (shifts, bitwise, logic) = (kinds(&["<<", ">>"]), kinds(&["&", "|", "^"]), kinds(&["&&", "||"]));
+        let arithmetic = kinds(&["+", "-", "*", "/", "%"]) > 0;
+        let comparison = kinds(&["<", ">", "<=", ">=", "==", "!="]) > 0;
+        (shifts > 0 && (shifts > 1 || bitwise > 0 || arithmetic))
+            || bitwise > 1
+            || (bitwise > 0 && (arithmetic || comparison || logic > 0))
+            || logic > 1
+    };
+    let text = without_comments(source);
+    let bytes = text.as_bytes();
+    let (mut bad, mut groups, mut templates, mut last, mut at, mut line) = (Vec::new(), vec![Vec::new()], 0usize, Last::Other, 0, 1);
+    while at < bytes.len() {
+        let c = bytes[at];
+        if c == b'\n' {
+            line += 1;
+            at += 1;
+            continue;
+        }
+        if c.is_ascii_whitespace() {
+            at += 1;
+            continue;
+        }
+        if c.is_ascii_alphanumeric() || c == b'_' || c == b'.' {
+            let start = at;
+            while at < bytes.len() && (bytes[at].is_ascii_alphanumeric() || bytes[at] == b'_' || bytes[at] == b'.') {
+                at += 1;
+            }
+            last = Last::Word(at, bytes[start].is_ascii_digit());
+            continue;
+        }
+        let op = OPERATORS.iter().copied().find(|op| text[at..].starts_with(op)).unwrap_or(&text[at..at + 1]);
+        let start = at;
+        at += op.len();
+        // `vec3<f32>`: a name right before `<` opens a template list, which `>` (or `>>`) closes.
+        if op == "<" && last == Last::Word(start, false) {
+            templates += 1;
+            last = Last::Other;
+            continue;
+        }
+        if templates > 0 && (op == ">" || op == ">>") {
+            templates = templates.saturating_sub(op.len());
+            last = Last::Operand;
+            continue;
+        }
+        let binary = matches!(last, Last::Word(..) | Last::Operand);
+        let group_ends = matches!(op, "," | ";" | "{" | "}" | "=" | ":" | "->") || (op.len() > 1 && op.ends_with('=') && !BINARY.contains(&op));
+        match op {
+            "(" | "[" => groups.push(Vec::new()),
+            ")" | "]" => {
+                let ops = groups.pop().unwrap_or_default();
+                if groups.is_empty() {
+                    groups.push(Vec::new());
+                }
+                if mixes(&ops) {
+                    bad.push(line);
+                }
+            }
+            _ if group_ends => {
+                let ops = std::mem::take(groups.last_mut().unwrap());
+                if mixes(&ops) {
+                    bad.push(line);
+                }
+            }
+            _ if binary && BINARY.contains(&op) => groups.last_mut().unwrap().push(op),
+            _ => {}
+        }
+        last = if matches!(op, ")" | "]") { Last::Operand } else { Last::Other };
+    }
+    bad.dedup();
+    bad
+}
+
+/// `source` with its comments blanked out, line breaks kept.
+fn without_comments(source: &str) -> String {
+    let mut out = String::with_capacity(source.len());
+    let mut rest = source;
+    while let Some(c) = rest.chars().next() {
+        if let Some(comment) = rest.strip_prefix("//") {
+            let end = comment.find('\n').unwrap_or(comment.len());
+            out.extend(std::iter::repeat_n(' ', end + 2));
+            rest = &comment[end..];
+        } else if let Some(comment) = rest.strip_prefix("/*") {
+            let end = comment.find("*/").map_or(comment.len(), |end| end + 2);
+            out.push_str("  ");
+            out.extend(comment[..end].chars().map(|c| if c == '\n' { '\n' } else { ' ' }));
+            rest = &comment[end..];
+        } else {
+            out.push(c);
+            rest = &rest[c.len_utf8()..];
+        }
+    }
+    out
+}
+
+/// The shaders the viewport, the path tracer and tessellation compile parse in strict WGSL too:
+/// no expression mixes operators that need parentheses there (#11080).
+#[test]
+fn shaders_parenthesise_what_strict_wgsl_requires() {
+    // The check itself: what Chrome refused, and what it reads.
+    assert_eq!(unparenthesised_mixes("let v = (x & 1u) << 3u | (y >> 1u);"), vec![1]);
+    assert_eq!(unparenthesised_mixes("// a | b << c\nlet m = a & b == c;"), vec![2]);
+    assert!(
+        unparenthesised_mixes("let v = ((x & 1u) << 3u) | (y >> 1u);\nlet c = bitcast<vec3<u32>>(p) & vec3<u32>(7u);\nlet w = (*s ^ 3u) * 5u;")
+            .is_empty()
+    );
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut dirs = vec![root.join("src"), root.join("../../assets/shaders")];
+    let mut sources = vec![("pbr::SOURCE".to_string(), crate::pbr::SOURCE.to_string())];
+    while let Some(dir) = dirs.pop() {
+        for path in std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.path()) {
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|extension| extension == "wgsl") {
+                sources.push((path.strip_prefix(root).unwrap_or(&path).display().to_string(), std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+    assert!(sources.iter().any(|(name, _)| name.ends_with("viewport.wgsl")) && sources.len() > 5, "{} shaders", sources.len());
+    let mixed: Vec<String> =
+        sources.iter().flat_map(|(name, source)| unparenthesised_mixes(source).into_iter().map(move |line| format!("{name}:{line}"))).collect();
+    assert!(mixed.is_empty(), "add parentheses: {mixed:?}");
+}
